@@ -8,7 +8,7 @@
 #     marge_json_path:  请填写网络地址的json文件，用于合并，不带空格！！！
 spider_settings:
   enable: true
-  json_url: "https://blog.liushen.fun/friend.json"
+  json_url: "https://blog.qiyao.us.kg/friend.json"
   article_count: 5
   merge_result:
     enable: false
@@ -33,7 +33,7 @@ email_push:
 #   github_repo:        GitHub 仓库名，用于构建issue api地址
 #   your_blog_url:      你的博客地址
 rss_subscribe:
-  enable: true
+  enable: false
   github_username: willow-god
   github_repo: Friend-Circle-Lite
   your_blog_url: https://blog.qyliu.top/
@@ -56,7 +56,7 @@ smtp:
 #   name:               友链名称
 #   url:                指定的RSS地址
 specific_RSS:
-  - name: "Redish101"
-    url: "https://reblog.redish101.top/api/feed"
+  # - name: "Redish101"
+  # url: "https://reblog.redish101.top/api/feed"
   # - name: "無名小栈"
   #   url: "https://blog.imsyy.top/rss.xml"
