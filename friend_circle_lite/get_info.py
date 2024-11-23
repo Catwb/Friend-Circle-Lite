@@ -1,12 +1,17 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 import requests
+import re
 import feedparser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# 设置日志配置
+logging.basicConfig(level=logging.INFO, format='🤪%(levelname)s: %(message)s')
+
 # 标准化的请求头
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-us) AppleWebKit/534.50 (KHTML, like Gecko) Version/5.1 Safari/534.50'
 }
 
 timeout = (10, 15) # 连接超时和读取超时，防止requests接受时间过长
@@ -23,42 +28,33 @@ def format_published_time(time_str):
     """
     # 尝试自动解析输入时间字符串
     try:
-        parsed_time = parser.parse(time_str)
-        # 如果没有时区信息，则将其视为 UTC
-        if parsed_time.tzinfo is None:
-            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
-        
-        # 转换为上海时区（UTC+8）
-        shanghai_time = parsed_time.astimezone(timezone(timedelta(hours=8)))
-        return shanghai_time.strftime('%Y-%m-%d %H:%M')
-    
+        parsed_time = parser.parse(time_str, fuzzy=True)
     except (ValueError, parser.ParserError):
-        pass
+        # 定义支持的时间格式
+        time_formats = [
+            '%a, %d %b %Y %H:%M:%S %z',  # Mon, 11 Mar 2024 14:08:32 +0000
+            '%a, %d %b %Y %H:%M:%S GMT',   # Wed, 19 Jun 2024 09:43:53 GMT
+            '%Y-%m-%dT%H:%M:%S%z',         # 2024-03-11T14:08:32+00:00
+            '%Y-%m-%dT%H:%M:%SZ',          # 2024-03-11T14:08:32Z
+            '%Y-%m-%d %H:%M:%S',           # 2024-03-11 14:08:32
+            '%Y-%m-%d'                     # 2024-03-11
+        ]
+        for fmt in time_formats:
+            try:
+                parsed_time = datetime.strptime(time_str, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            logging.warning(f"无法解析时间字符串：{time_str}")
+            return ''
 
-    # 定义支持的时间格式
-    time_formats = [
-        '%a, %d %b %Y %H:%M:%S %z',  # Mon, 11 Mar 2024 14:08:32 +0000
-        '%a, %d %b %Y %H:%M:%S GMT',   # Wed, 19 Jun 2024 09:43:53 GMT
-        '%Y-%m-%dT%H:%M:%S%z',         # 2024-03-11T14:08:32+00:00
-        '%Y-%m-%dT%H:%M:%SZ',          # 2024-03-11T14:08:32Z
-        '%Y-%m-%d %H:%M:%S',           # 2024-03-11 14:08:32
-        '%Y-%m-%d'                     # 2024-03-11
-    ]
+    # 处理时区转换
+    if parsed_time.tzinfo is None:
+        parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+    shanghai_time = parsed_time.astimezone(timezone(timedelta(hours=8)))
+    return shanghai_time.strftime('%Y-%m-%d %H:%M')
 
-    # 遍历所有支持的时间格式进行解析
-    for fmt in time_formats:
-        try:
-            parsed_time = datetime.strptime(time_str, fmt)
-            # 将解析的时间视为 UTC
-            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
-            # 转换为上海时区
-            shanghai_time = parsed_time.astimezone(timezone(timedelta(hours=8)))
-            return shanghai_time.strftime('%Y-%m-%d %H:%M')
-        except ValueError:
-            continue
-
-    # 如果所有格式都无法匹配，返回空字符串
-    return ''
 
 
 def check_feed(blog_url, session):
@@ -79,66 +75,29 @@ def check_feed(blog_url, session):
             如果都不可访问，则返回 ['none', blog_url]。
     """
     
-    atom_url = blog_url.rstrip('/') + '/atom.xml'
-    rss_url = blog_url.rstrip('/') + '/rss.xml'  # 2024-07-26 添加 /rss.xml内容的支持
-    rss2_url = blog_url.rstrip('/') + '/rss2.xml'
-    feed_url = blog_url.rstrip('/') + '/feed'
-    feed2_url = blog_url.rstrip('/') + '/feed.xml'  # 2024-07-26 添加 /feed.xml内容的支持
-    feed3_url = blog_url.rstrip('/') + '/feed/'  # 2024-07-26 添加 /feed/内容的支持
-    index_url = blog_url.rstrip('/') + '/index.xml' # 2024-07-25 添加 /index.xml内容的支持
-    
-    try:
-        atom_response = session.get(atom_url, headers=headers, timeout=timeout)
-        if atom_response.status_code == 200:
-            return ['atom', atom_url]
-    except requests.RequestException:
-        pass
-    
-    try:
-        rss_response = session.get(rss_url, headers=headers, timeout=timeout)
-        if rss_response.status_code == 200:
-            return ['rss', rss_url]
-    except requests.RequestException:
-        pass
-    
-    try:
-        rss_response = session.get(rss2_url, headers=headers, timeout=timeout)
-        if rss_response.status_code == 200:
-            return ['rss2', rss2_url]
-    except requests.RequestException:
-        pass
+    possible_feeds = [
+        ('atom', '/atom.xml'),
+        ('rss', '/rss.xml'), # 2024-07-26 添加 /rss.xml内容的支持
+        ('rss2', '/rss2.xml'),
+        ('feed', '/feed'),
+        ('feed2', '/feed.xml'), # 2024-07-26 添加 /feed.xml内容的支持
+        ('feed3', '/feed/'),
+        ('index', '/index.xml') # 2024-07-25 添加 /index.xml内容的支持
+    ]
 
-    try:
-        feed_response = session.get(feed_url, headers=headers, timeout=timeout)
-        if feed_response.status_code == 200:
-            return ['feed', feed_url]
-    except requests.RequestException:
-        pass
-    
-    try:
-        feed_response = session.get(feed2_url, headers=headers, timeout=timeout)
-        if feed_response.status_code == 200:
-            return ['feed2', feed2_url]
-    except requests.RequestException:
-        pass
-    
-    try:
-        feed_response = session.get(index_url, headers=headers, timeout=timeout)
-        if feed_response.status_code == 200:
-            return ['index', index_url]
-    except requests.RequestException:
-        pass
-    
-    try:
-        feed_response = session.get(feed3_url, headers=headers, timeout=timeout)
-        if feed_response.status_code == 200:
-            return ['feed3', feed3_url]
-    except requests.RequestException:
-        pass
-    
+    for feed_type, path in possible_feeds:
+        feed_url = blog_url.rstrip('/') + path
+        try:
+            response = session.get(feed_url, headers=headers, timeout=timeout)
+            if response.status_code == 200:
+                return [feed_type, feed_url]
+        except requests.RequestException:
+            continue
+    logging.warning(f"无法找到 {blog_url} 的订阅链接")
     return ['none', blog_url]
 
-def parse_feed(url, session, count=5):
+
+def parse_feed(url, session, count=5, blog_url=''):
     """
     解析 Atom 或 RSS2 feed 并返回包含网站名称、作者、原链接和每篇文章详细内容的字典。
 
@@ -165,21 +124,25 @@ def parse_feed(url, session, count=5):
             'articles': []
         }
         
-        for i, entry in enumerate(feed.entries):
+        for _ , entry in enumerate(feed.entries):
             
             if 'published' in entry:
                 published = format_published_time(entry.published)
             elif 'updated' in entry:
                 published = format_published_time(entry.updated)
                 # 输出警告信息
-                print(f"警告：文章 {entry.title} 未包含发布时间，请尽快联系站长处理，暂时已设置为更新时间 {published}")
+                logging.warning(f"文章 {entry.title} 未包含发布时间，已使用更新时间 {published}")
             else:
                 published = ''
-                print(f"警告：文章 {entry.title} 未包含任何时间信息，请尽快联系站长处理")
+                logging.warning(f"文章 {entry.title} 未包含任何时间信息, 请检查原文, 设置为默认时间")
+            
+            # 处理链接中可能存在的错误，比如ip或localhost
+            article_link = replace_non_domain(entry.link, blog_url) if 'link' in entry else ''
+            
             article = {
                 'title': entry.title if 'title' in entry else '',
                 'author': result['author'],
-                'link': entry.link if 'link' in entry else '',
+                'link': article_link,
                 'published': published,
                 'summary': entry.summary if 'summary' in entry else '',
                 'content': entry.content[0].value if 'content' in entry and entry.content else entry.description if 'description' in entry else ''
@@ -193,13 +156,30 @@ def parse_feed(url, session, count=5):
         
         return result
     except Exception as e:
-        print(f"不可链接的FEED地址：{url} : {e}")
+        logging.error(f"无法解析FEED地址：{url} ，请自行排查原因！")
         return {
             'website_name': '',
             'author': '',
             'link': '',
             'articles': []
         }
+
+def replace_non_domain(link: str, blog_url: str) -> str:
+    """
+    暂未实现
+    检测并替换字符串中的非正常域名部分（如 IP 地址或 localhost），替换为 blog_url。
+    替换后强制使用 https，且考虑 blog_url 尾部是否有斜杠。
+
+    :param link: 原始地址字符串
+    :param blog_url: 替换为的博客地址
+    :return: 替换后的地址字符串
+    """
+    
+    # 提取link中的路径部分，无需协议和域名
+    # path = re.sub(r'^https?://[^/]+', '', link)
+    # print(path)
+    
+    return link
 
 def process_friend(friend, session, count, specific_RSS=[]):
     """
@@ -223,13 +203,13 @@ def process_friend(friend, session, count, specific_RSS=[]):
     if rss_feed:
         feed_url = rss_feed
         feed_type = 'specific'
-        print(f"========“{name}”的博客“{blog_url} ”为特定RSS源“{feed_url}”========")
+        logging.info(f"“{name}”的博客“ {blog_url} ”为特定RSS源“ {feed_url} ”")
     else:
         feed_type, feed_url = check_feed(blog_url, session)
-        print(f"========“{name}”的博客“{blog_url} ”的feed类型为“{feed_type}”========")
+        logging.info(f"“{name}”的博客“ {blog_url} ”的feed类型为“{feed_type}”, feed地址为“ {feed_url} ”")
 
     if feed_type != 'none':
-        feed_info = parse_feed(feed_url, session, count)
+        feed_info = parse_feed(feed_url, session, count, blog_url)
         articles = [
             {
                 'title': article['title'],
@@ -242,7 +222,7 @@ def process_friend(friend, session, count, specific_RSS=[]):
         ]
         
         for article in articles:
-            print(f"{name} 发布了新文章：{article['title']}, 时间：{article['created']}")
+            logging.info(f"{name} 发布了新文章：{article['title']}，时间：{article['created']}，链接：{article['link']}")
         
         return {
             'name': name,
@@ -250,7 +230,7 @@ def process_friend(friend, session, count, specific_RSS=[]):
             'articles': articles
         }
     else:
-        print(f"{name} 的博客 {blog_url} 无法访问")
+        logging.warning(f"{name} 的博客 {blog_url} 无法访问")
         return {
             'name': name,
             'status': 'error',
@@ -275,7 +255,7 @@ def fetch_and_process_data(json_url, specific_RSS=[], count=5):
         response = session.get(json_url, headers=headers, timeout=timeout)
         friends_data = response.json()
     except Exception as e:
-        print(f"无法获取该链接：{json_url} , 出现的问题为：{e}")
+        logging.error(f"无法获取链接：{json_url} ：{e}", exc_info=True)
         return None
 
     total_friends = len(friends_data['friends'])
@@ -303,7 +283,7 @@ def fetch_and_process_data(json_url, specific_RSS=[], count=5):
                     error_friends += 1
                     error_friends_info.append(friend)
             except Exception as e:
-                print(f"处理 {friend} 时发生错误: {e}")
+                logging.error(f"处理 {friend} 时发生错误: {e}", exc_info=True)
                 error_friends += 1
                 error_friends_info.append(friend)
 
@@ -318,8 +298,7 @@ def fetch_and_process_data(json_url, specific_RSS=[], count=5):
         'article_data': article_data
     }
     
-    print("数据处理完成")
-    print("总共有 %d 位朋友，其中 %d 位博客可访问，%d 位博客无法访问" % (total_friends, active_friends, error_friends))
+    logging.info(f"数据处理完成，总共有 {total_friends} 位朋友，其中 {active_friends} 位博客可访问，{error_friends} 位博客无法访问")
 
     return result, error_friends_info
 
@@ -338,7 +317,7 @@ def sort_articles_by_time(data):
         if article['created'] == '' or article['created'] == None:
             article['created'] = '2024-01-01 00:00'
             # 输出警告信息
-            print(f"警告：文章 {article['title']} 未包含任何可提取的时间信息，已设置为默认时间 2024-01-01 00:00")
+            logging.warning(f"文章 {article['title']} 未包含时间信息，已设置为默认时间 2024-01-01 00:00")
     
     if 'article_data' in data:
         sorted_articles = sorted(
@@ -364,14 +343,14 @@ def marge_data_from_json_url(data, marge_json_url):
         response = requests.get(marge_json_url, headers=headers, timeout=timeout)
         marge_data = response.json()
     except Exception as e:
-        print(f"无法获取该链接：{marge_json_url} , 出现的问题为：{e}")
+        logging.error(f"无法获取链接：{marge_json_url}，出现的问题为：{e}", exc_info=True)
         return data
     
     if 'article_data' in marge_data:
-        print("开始合并数据，原数据共有 %d 篇文章，境外数据共有 %d 篇文章" % (len(data['article_data']), len(marge_data['article_data'])))
+        logging.info(f"开始合并数据，原数据共有 {len(data['article_data'])} 篇文章，第三方数据共有 {len(marge_data['article_data'])} 篇文章")
         data['article_data'].extend(marge_data['article_data'])
         data['article_data'] = list({v['link']:v for v in data['article_data']}.values())
-        print("合并数据完成，现在共有 %d 篇文章" % len(data['article_data']))
+        logging.info(f"合并数据完成，现在共有 {len(data['article_data'])} 篇文章")
     return data
 
 import requests
@@ -392,7 +371,7 @@ def marge_errors_from_json_url(errors, marge_json_url):
         response = requests.get(marge_json_url, timeout=10)  # 设置请求超时时间
         marge_errors = response.json()
     except Exception as e:
-        print(f"无法获取该链接：{marge_json_url}，出现的问题为：{e}")
+        logging.error(f"无法获取链接：{marge_json_url}，出现的问题为：{e}", exc_info=True)
         return errors
 
     # 提取 marge_errors 中的 URL
@@ -401,7 +380,7 @@ def marge_errors_from_json_url(errors, marge_json_url):
     # 使用过滤器保留 errors 中在 marge_errors 中出现的 URL
     filtered_errors = [error for error in errors if error[1] in marge_urls]
 
-    print("合并错误信息完成，保留了 %d 位朋友" % len(filtered_errors))
+    logging.info(f"合并错误信息完成，合并后共有 {len(filtered_errors)} 位朋友")
     return filtered_errors
 
 def deal_with_large_data(result):
@@ -416,23 +395,24 @@ def deal_with_large_data(result):
     """
     result = sort_articles_by_time(result)
     article_data = result.get("article_data", [])
-    
+
     # 检查文章数量是否大于 150
-    if len(article_data) > 150:
-        print("数据量较大，开始进行处理···")
-        # 获取前 150 篇文章的作者集合
-        first_200_authors = {article["author"] for article in article_data[:150]}
-        
-        # 从第151篇开始过滤，只保留前150篇出现过的作者的文章
-        filtered_articles = article_data[:150] + [
-            article for article in article_data[150:]
-            if article["author"] in first_200_authors
+    max_articles = 150
+    if len(article_data) > max_articles:
+        logging.info("数据量较大，开始进行处理...")
+        # 获取前 max_articles 篇文章的作者集合
+        top_authors = {article["author"] for article in article_data[:max_articles]}
+
+        # 从第 {max_articles + 1} 篇开始过滤，只保留前 max_articles 篇出现过的作者的文章
+        filtered_articles = article_data[:max_articles] + [
+            article for article in article_data[max_articles:]
+            if article["author"] in top_authors
         ]
-        
+
         # 更新结果中的 article_data
         result["article_data"] = filtered_articles
         # 更新结果中的统计数据
         result["statistical_data"]["article_num"] = len(filtered_articles)
-        print("数据处理完成，保留 %d 篇文章" % len(filtered_articles))
+        logging.info(f"数据处理完成，保留 {len(filtered_articles)} 篇文章")
 
     return result
