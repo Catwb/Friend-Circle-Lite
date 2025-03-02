@@ -51,7 +51,7 @@ rss_subscribe:
 #   use_tls：           是否使用 tls 加密
 smtp:
   email: blog@245179.xyz
-  server: smtppro.zoho.com
+  server: smtp.zoho.com
   port: 587
   use_tls: true
 
