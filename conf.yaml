@@ -37,7 +37,7 @@ email_push:
 rss_subscribe:
   enable: true
   github_username: Catwb
-  github_repo: Rss-MailSubscribe
+  github_repo: Friend-Circle-Lite
   your_blog_url: https://blog.245179.xyz/
   email_template: "./rss_subscribe/email_template.html"
   website_info:
