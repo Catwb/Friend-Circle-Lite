@@ -35,13 +35,13 @@ email_push:
 #   website_info:       你的博客信息
 #     title:            你的博客标题，如果启用了推送，用于生成邮件主题
 rss_subscribe:
-  enable: false
-  github_username: willow-god
-  github_repo: Friend-Circle-Lite
-  your_blog_url: https://blog.liushen.fun/
+  enable: true
+  github_username: Catwb
+  github_repo: Rss-MailSubscribe
+  your_blog_url: https://blog.245179.xyz/
   email_template: "./rss_subscribe/email_template.html"
   website_info:
-    title: "清羽飞扬"
+    title: "龙窝"
 
 # SMTP 配置
 # 解释：使用其中的相关配置实现上面两种功能，若无推送要求可以不配置，请将以上两个配置置为false
@@ -50,8 +50,8 @@ rss_subscribe:
 #   port：              SMTP 端口号
 #   use_tls：           是否使用 tls 加密
 smtp:
-  email: 3162475700@qq.com
-  server: smtp.qq.com
+  email: blog@245179.xyz
+  server: smtppro.zoho.com
   port: 587
   use_tls: true
 
