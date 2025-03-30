@@ -1,0 +1,15 @@
+# netlify.toml
+[[headers]]
+  for = "/*"  # 匹配所有路径
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    X-CORS-Config-Source = "netlify-headers"  # 自定义标识头
+
+# 单独处理 OPTIONS 请求
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Max-Age = "86400"
+  method = ["OPTIONS"]  # 仅针对OPTIONS方法
