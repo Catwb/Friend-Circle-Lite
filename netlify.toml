@@ -4,7 +4,7 @@
   [headers.values]
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    Access-Control-Allow-Headers = "cache-control, Content-Type, Authorization"
     X-CORS-Config-Source = "netlify-headers"  # 自定义标识头
 
 # 单独处理 OPTIONS 请求
