@@ -11,5 +11,10 @@
 
 # 忽略数据文件
 *.json
+!edgeone.json
 
 *.bat
+
+.env
+
+temp/
